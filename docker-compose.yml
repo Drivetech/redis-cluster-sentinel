@@ -1,0 +1,58 @@
+version: '2'
+
+services:
+  master:
+    image: redis:4.0.2-alpine
+    command: redis-server --appendonly yes --masterauth $REDIS_PASSWORD --requirepass $REDIS_PASSWORD
+    environment:
+      REDIS_PASSWORD: $REDIS_PASSWORD
+      TCP_PORTS: "6379"
+      EXTRA_SETTINGS: "option tcplog,option tcp-check,tcp-check send AUTH\\ $REDIS_PASSWORD\\r\\n,tcp-check expect string +OK,tcp-check send PING\\r\\n,tcp-check expect string +PONG,tcp-check send info\\ replication\\r\\n,tcp-check expect string role:master,tcp-check send QUIT\\r\\n,tcp-check expect string +OK"
+    volumes:
+      - redis-data-master:/data
+
+  slave:
+    image: redis:4.0.2-alpine
+    command: redis-server --appendonly yes --slaveof master 6379 --masterauth $REDIS_PASSWORD --requirepass $REDIS_PASSWORD
+    environment:
+      REDIS_PASSWORD: $REDIS_PASSWORD
+      TCP_PORTS: "6379"
+      EXTRA_SETTINGS: "option tcplog,option tcp-check,tcp-check send AUTH\\ $REDIS_PASSWORD\\r\\n,tcp-check expect string +OK,tcp-check send PING\\r\\n,tcp-check expect string +PONG,tcp-check send info\\ replication\\r\\n,tcp-check expect string role:master,tcp-check send QUIT\\r\\n,tcp-check expect string +OK"
+    volumes:
+      - redis-data-slave:/data
+    depends_on:
+      - master
+    links:
+      - master
+
+  sentinel:
+    image: lgatica/redis-sentinel:4.0.2
+    environment:
+      REDIS_PASSWORD: $REDIS_PASSWORD
+    depends_on:
+      - master
+    links:
+      - master
+    ports:
+      - "26379"
+
+  haproxy:
+    image: dockercloud/haproxy:1.6.7
+    environment:
+      REDIS_PASSWORD: $REDIS_PASSWORD
+      EXTRA_DEFAULT_SETTINGS: "mode tcp,timeout connect 3s,timeout server 6s,timeout client 6s"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - master
+      - slave
+    links:
+      - master
+      - slave
+    ports:
+      - "6379:6379"
+      - "1936:1936"
+
+volumes:
+  redis-data-master:
+  redis-data-slave:
